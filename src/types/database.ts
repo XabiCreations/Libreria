@@ -58,6 +58,15 @@ export interface NuevoUsuario {
   rol: Rol
 }
 
+export interface EditarUsuario {
+  nombre: string
+  apellido: string
+  dni: string
+  telefono: string
+  email: string
+  rol: Rol
+}
+
 export interface NuevoLibro {
   title: string
   author: string

@@ -12,11 +12,12 @@ import {
   type Column,
   type SortingState,
 } from '@tanstack/react-table'
-import { Plus, ChevronLeft, Check, ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
+import { Plus, ChevronLeft, Check, Pencil, Trash2, ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUsuarios } from '@/hooks/useUsuarios'
 import { usePrestamos } from '@/hooks/usePrestamos'
 import { useToast } from '@/context/ToastContext'
+import { useAuthStore } from '@/store/authStore'
 import { Usuario } from '@/types/database'
 import { formatearFecha } from '@/lib/helpers'
 import { Button } from '@/components/ui/button'
@@ -29,7 +30,9 @@ import { Badge } from '@/components/ui/badge'
 import { LoanBadge } from '@/components/LoanBadge'
 import { BookPlaceholder } from '@/components/BookPlaceholder'
 
-const schema = z.object({
+// ─── Schemas ────────────────────────────────────────────────
+
+const createSchema = z.object({
   nombre: z.string().min(1, ''),
   apellido: z.string().min(1, ''),
   dni: z.string().min(9, 'El DNI debe tener 9 caracteres').max(9, 'El DNI debe tener 9 caracteres'),
@@ -43,7 +46,25 @@ const schema = z.object({
   rol: z.enum(['admin', 'cliente']),
 })
 
-type FormValues = z.infer<typeof schema>
+const editSchema = z.object({
+  nombre: z.string().min(1, ''),
+  apellido: z.string().min(1, ''),
+  dni: z.string().min(9, 'El DNI debe tener 9 caracteres').max(9, 'El DNI debe tener 9 caracteres'),
+  telefono: z.string().min(9, 'El teléfono debe tener al menos 9 dígitos'),
+  email: z.string().email('Email no válido'),
+  rol: z.enum(['admin', 'cliente']),
+})
+
+type CreateFormValues = z.infer<typeof createSchema>
+type EditFormValues = z.infer<typeof editSchema>
+
+const MENSAJES_UNICIDAD = {
+  email: 'Este email ya está registrado',
+  dni: 'Este DNI ya está en uso',
+  telefono: 'Este teléfono ya está registrado',
+} as const
+
+// ─── PasswordRequirements ────────────────────────────────────
 
 const PASSWORD_RULES = [
   { label: 'Mínimo 8 caracteres',          test: (v: string) => v.length >= 8 },
@@ -68,6 +89,8 @@ function PasswordRequirements({ value }: { value: string }) {
   )
 }
 
+// ─── SortableHeader ──────────────────────────────────────────
+
 function SortableHeader({ column, label }: { column: Column<any, unknown>; label: string }) {
   return (
     <button
@@ -88,20 +111,34 @@ function SortableHeader({ column, label }: { column: Column<any, unknown>; label
 
 const col = createColumnHelper<Usuario>()
 
+// ─── UsersPage ───────────────────────────────────────────────
+
 export default function UsersPage() {
-  const { usuarios, loading, fetchUsuarios, crearUsuario } = useUsuarios()
+  const { usuarios, loading, fetchUsuarios, crearUsuario, editarUsuario, eliminarUsuario } = useUsuarios()
   const { prestamos, fetchPrestamos } = usePrestamos()
   const { showToast } = useToast()
+  const { user: currentUser } = useAuthStore()
 
   const [globalFilter, setGlobalFilter] = useState('')
-  const [formOpen, setFormOpen] = useState(false)
-  const [selectedUser, setSelectedUser] = useState<Usuario | null>(null)
-  const [saving, setSaving] = useState(false)
   const [sorting, setSorting] = useState<SortingState>([])
+  const [selectedUser, setSelectedUser] = useState<Usuario | null>(null)
 
-  const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
+  // Create dialog
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createSaving, setCreateSaving] = useState(false)
+
+  // Edit dialog
+  const [editingUser, setEditingUser] = useState<Usuario | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editSaving, setEditSaving] = useState(false)
+
+  const createForm = useForm<CreateFormValues>({
+    resolver: zodResolver(createSchema),
     defaultValues: { rol: 'cliente' },
+  })
+
+  const editForm = useForm<EditFormValues>({
+    resolver: zodResolver(editSchema),
   })
 
   useEffect(() => {
@@ -113,18 +150,75 @@ export default function UsersPage() {
     ? prestamos.filter((p) => p.usuario_id === selectedUser.id)
     : []
 
-  const onSubmit = async (values: FormValues) => {
-    setSaving(true)
+  // ── Create ──────────────────────────────────────────────
+
+  const onCreateSubmit = async (values: CreateFormValues) => {
+    setCreateSaving(true)
     const { error } = await crearUsuario(values)
-    setSaving(false)
+    setCreateSaving(false)
     if (error) {
       showToast({ variant: 'error', message: 'Error al crear usuario' })
     } else {
-      showToast({ variant: 'success', message: 'Usuario creado correctamente' })
-      setFormOpen(false)
-      form.reset()
+      showToast({ variant: 'success', message: 'Usuario creado correctamente.' })
+      setCreateOpen(false)
+      createForm.reset()
     }
   }
+
+  // ── Edit ────────────────────────────────────────────────
+
+  const openEdit = (usuario: Usuario) => {
+    editForm.reset({
+      nombre: usuario.nombre,
+      apellido: usuario.apellido,
+      dni: usuario.dni,
+      telefono: usuario.telefono,
+      email: usuario.email,
+      rol: usuario.rol,
+    })
+    setEditingUser(usuario)
+    setEditOpen(true)
+  }
+
+  const checkUnicidadEdit = async (campo: 'email' | 'dni' | 'telefono', valor: string) => {
+    if (!editingUser || !valor) return
+    const isValid = await editForm.trigger(campo)
+    if (!isValid) return
+    const duplicate = usuarios.some((u) => u.id !== editingUser.id && u[campo] === valor)
+    if (duplicate) editForm.setError(campo, { message: MENSAJES_UNICIDAD[campo] })
+  }
+
+  const onEditSubmit = async (values: EditFormValues) => {
+    if (!editingUser) return
+    setEditSaving(true)
+    const { error } = await editarUsuario(editingUser.id, values)
+    setEditSaving(false)
+    if (error) {
+      showToast({ variant: 'error', message: error.message ?? 'Error al actualizar usuario' })
+    } else {
+      showToast({ variant: 'success', message: 'Usuario actualizado correctamente.' })
+      setEditOpen(false)
+    }
+  }
+
+  // ── Delete ──────────────────────────────────────────────
+
+  const handleDelete = (usuario: Usuario) => {
+    showToast({
+      variant: 'destructive',
+      message: `¿Seguro que quieres eliminar a ${usuario.nombre} ${usuario.apellido}? Esta acción no se puede deshacer.`,
+      onConfirm: async () => {
+        const { error } = await eliminarUsuario(usuario.id)
+        showToast(
+          error
+            ? { variant: 'error', message: error.message ?? 'Error al eliminar usuario' }
+            : { variant: 'success', message: 'Usuario eliminado correctamente.' }
+        )
+      },
+    })
+  }
+
+  // ── Columns ─────────────────────────────────────────────
 
   const columns = [
     col.accessor((r) => `${r.nombre} ${r.apellido}`, {
@@ -153,11 +247,35 @@ export default function UsersPage() {
     col.display({
       id: 'actions',
       header: '',
-      cell: ({ row }) => (
-        <Button variant="ghost" size="sm" onClick={() => setSelectedUser(row.original)}>
-          Ver historial
-        </Button>
-      ),
+      cell: ({ row }) => {
+        const isCurrentUser = row.original.id === currentUser?.id
+        return (
+          <div className="flex gap-1 justify-end">
+            <Button variant="ghost" size="sm" onClick={() => setSelectedUser(row.original)}>
+              Ver historial
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => openEdit(row.original)}
+              disabled={isCurrentUser}
+              title="Editar"
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleDelete(row.original)}
+              disabled={isCurrentUser}
+              title="Eliminar"
+              className="text-destructive hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        )
+      },
     }),
   ]
 
@@ -180,6 +298,8 @@ export default function UsersPage() {
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
   })
+
+  // ── Historial view ──────────────────────────────────────
 
   if (selectedUser) {
     return (
@@ -226,6 +346,8 @@ export default function UsersPage() {
     )
   }
 
+  // ── Table view ──────────────────────────────────────────
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -233,7 +355,7 @@ export default function UsersPage() {
           <h1 className="text-2xl font-semibold">Usuarios</h1>
           <p className="text-sm text-muted-foreground">{usuarios.length} usuarios registrados</p>
         </div>
-        <Button onClick={() => setFormOpen(true)} className="gap-2 w-full sm:w-auto">
+        <Button onClick={() => setCreateOpen(true)} className="gap-2 w-full sm:w-auto">
           <Plus className="h-4 w-4" /> Nuevo usuario
         </Button>
       </div>
@@ -265,7 +387,10 @@ export default function UsersPage() {
               table.getRowModel().rows.map((row) => (
                 <TableRow key={row.id} className="cursor-pointer" onClick={() => setSelectedUser(row.original)}>
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} onClick={cell.column.id === 'actions' ? (e) => e.stopPropagation() : undefined}>
+                    <TableCell
+                      key={cell.id}
+                      onClick={cell.column.id === 'actions' ? (e) => e.stopPropagation() : undefined}
+                    >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}
@@ -276,28 +401,29 @@ export default function UsersPage() {
         </Table>
       </div>
 
-      <Dialog open={formOpen} onOpenChange={(o) => { if (!o) setFormOpen(false) }}>
+      {/* ── Dialog: Crear usuario ── */}
+      <Dialog open={createOpen} onOpenChange={(o) => { if (!o) { setCreateOpen(false); createForm.reset() } }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Crear usuario</DialogTitle></DialogHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <Form {...createForm}>
+            <form onSubmit={createForm.handleSubmit(onCreateSubmit)} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormField control={form.control} name="nombre" render={({ field }) => (
+                <FormField control={createForm.control} name="nombre" render={({ field }) => (
                   <FormItem><FormLabel>Nombre *</FormLabel><FormControl><Input placeholder="Ana" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
-                <FormField control={form.control} name="apellido" render={({ field }) => (
+                <FormField control={createForm.control} name="apellido" render={({ field }) => (
                   <FormItem><FormLabel>Apellido *</FormLabel><FormControl><Input placeholder="García" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
-                <FormField control={form.control} name="dni" render={({ field }) => (
+                <FormField control={createForm.control} name="dni" render={({ field }) => (
                   <FormItem><FormLabel>DNI *</FormLabel><FormControl><Input placeholder="12345678A" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
-                <FormField control={form.control} name="telefono" render={({ field }) => (
+                <FormField control={createForm.control} name="telefono" render={({ field }) => (
                   <FormItem><FormLabel>Teléfono *</FormLabel><FormControl><Input placeholder="612 345 678" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
-                <FormField control={form.control} name="email" render={({ field }) => (
+                <FormField control={createForm.control} name="email" render={({ field }) => (
                   <FormItem className="sm:col-span-2"><FormLabel>Email *</FormLabel><FormControl><Input type="email" placeholder="ana@ejemplo.com" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
-                <FormField control={form.control} name="password" render={({ field }) => (
+                <FormField control={createForm.control} name="password" render={({ field }) => (
                   <FormItem className="sm:col-span-2">
                     <FormLabel>Contraseña *</FormLabel>
                     <FormControl><Input type="password" placeholder="Mínimo 8 caracteres" {...field} /></FormControl>
@@ -305,7 +431,7 @@ export default function UsersPage() {
                     <FormMessage />
                   </FormItem>
                 )} />
-                <FormField control={form.control} name="rol" render={({ field }) => (
+                <FormField control={createForm.control} name="rol" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Rol *</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
@@ -320,8 +446,84 @@ export default function UsersPage() {
                 )} />
               </div>
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>Cancelar</Button>
-                <Button type="submit" disabled={saving}>{saving ? 'Creando...' : 'Crear usuario'}</Button>
+                <Button type="button" variant="outline" onClick={() => { setCreateOpen(false); createForm.reset() }}>Cancelar</Button>
+                <Button type="submit" disabled={createSaving}>{createSaving ? 'Creando...' : 'Crear usuario'}</Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog: Editar usuario ── */}
+      <Dialog open={editOpen} onOpenChange={(o) => { if (!o) setEditOpen(false) }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Editar usuario</DialogTitle></DialogHeader>
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField control={editForm.control} name="nombre" render={({ field }) => (
+                  <FormItem><FormLabel>Nombre *</FormLabel><FormControl><Input placeholder="Ana" {...field} /></FormControl><FormMessage /></FormItem>
+                )} />
+                <FormField control={editForm.control} name="apellido" render={({ field }) => (
+                  <FormItem><FormLabel>Apellido *</FormLabel><FormControl><Input placeholder="García" {...field} /></FormControl><FormMessage /></FormItem>
+                )} />
+                <FormField control={editForm.control} name="dni" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>DNI *</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="12345678A"
+                        {...field}
+                        onBlur={async (e) => { field.onBlur(); await checkUnicidadEdit('dni', e.target.value) }}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="telefono" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Teléfono *</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="612 345 678"
+                        {...field}
+                        onBlur={async (e) => { field.onBlur(); await checkUnicidadEdit('telefono', e.target.value) }}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="email" render={({ field }) => (
+                  <FormItem className="sm:col-span-2">
+                    <FormLabel>Email *</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="email"
+                        placeholder="ana@ejemplo.com"
+                        {...field}
+                        onBlur={async (e) => { field.onBlur(); await checkUnicidadEdit('email', e.target.value) }}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="rol" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Rol *</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        <SelectItem value="cliente">Cliente</SelectItem>
+                        <SelectItem value="admin">Admin</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancelar</Button>
+                <Button type="submit" disabled={editSaving}>{editSaving ? 'Guardando...' : 'Guardar cambios'}</Button>
               </DialogFooter>
             </form>
           </Form>
