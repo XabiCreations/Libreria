@@ -30,11 +30,6 @@ export default function Login() {
   const { user } = useAuthStore()
   const { login } = useAuth()
   const [error, setError] = useState<string | null>(null)
-  const [modo, setModo] = useState<'login' | 'recuperar'>('login')
-  const [recuperarIdentifier, setRecuperarIdentifier] = useState('')
-  const [recuperarLoading, setRecuperarLoading] = useState(false)
-  const [recuperarMensaje, setRecuperarMensaje] = useState<string | null>(null)
-  const [recuperarError, setRecuperarError] = useState<string | null>(null)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -43,33 +38,6 @@ export default function Login() {
 
   if (user) {
     return <Navigate to={user.rol === 'admin' ? '/admin/books' : '/dashboard'} replace />
-  }
-
-  const onRecuperar = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setRecuperarError(null)
-    setRecuperarMensaje(null)
-    setRecuperarLoading(true)
-    try {
-      let email = recuperarIdentifier.trim()
-      if (!email.includes('@')) {
-        const { data, error } = await supabase.rpc('get_email_by_dni', { p_dni: email })
-        if (error || !data) {
-          setRecuperarError('No se encontró ninguna cuenta con ese DNI.')
-          setRecuperarLoading(false)
-          return
-        }
-        email = data as string
-      }
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      })
-      if (error) throw error
-      setRecuperarMensaje('Te hemos enviado un correo con el enlace para restablecer tu contraseña.')
-    } catch {
-      setRecuperarError('No se pudo enviar el correo. Inténtalo de nuevo.')
-    }
-    setRecuperarLoading(false)
   }
 
   const onSubmit = async (values: FormValues) => {
@@ -103,111 +71,63 @@ export default function Login() {
 
         <Card>
           <CardHeader className="pb-4">
-            <CardTitle className="text-lg">
-              {modo === 'login' ? 'Iniciar sesión' : 'Recuperar contraseña'}
-            </CardTitle>
-            <CardDescription>
-              {modo === 'login'
-                ? 'Introduce tus credenciales para continuar'
-                : 'Te enviaremos un enlace a tu correo electrónico'}
-            </CardDescription>
+            <CardTitle className="text-lg">Iniciar sesión</CardTitle>
+            <CardDescription>Introduce tus credenciales para continuar</CardDescription>
           </CardHeader>
           <CardContent>
-            {modo === 'login' ? (
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="identifier"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Email o DNI</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="text"
-                            placeholder="Introduce tu email o DNI"
-                            autoComplete="username"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="password"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Contraseña</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="password"
-                            placeholder="••••••••"
-                            autoComplete="current-password"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => { setModo('recuperar'); setError(null) }}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    ¿Olvidaste tu contraseña?
-                  </button>
-
-                  {error && (
-                    <p className="text-sm font-medium text-destructive">{error}</p>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="identifier"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email o DNI</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="text"
+                          placeholder="Introduce tu email o DNI"
+                          autoComplete="username"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
                   )}
+                />
 
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={form.formState.isSubmitting}
-                  >
-                    {form.formState.isSubmitting ? 'Accediendo...' : 'Acceder'}
-                  </Button>
-                </form>
-              </Form>
-            ) : (
-              <form onSubmit={onRecuperar} className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Email o DNI</label>
-                  <Input
-                    type="text"
-                    placeholder="Introduce tu email o DNI"
-                    value={recuperarIdentifier}
-                    onChange={(e) => setRecuperarIdentifier(e.target.value)}
-                    autoComplete="username"
-                  />
-                </div>
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Contraseña</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="password"
+                          placeholder="••••••••"
+                          autoComplete="current-password"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-                {recuperarError && (
-                  <p className="text-sm font-medium text-destructive">{recuperarError}</p>
-                )}
-                {recuperarMensaje && (
-                  <p className="text-sm font-medium text-green-600">{recuperarMensaje}</p>
+                {error && (
+                  <p className="text-sm font-medium text-destructive">{error}</p>
                 )}
 
-                <Button type="submit" className="w-full" disabled={recuperarLoading || !!recuperarMensaje}>
-                  {recuperarLoading ? 'Enviando...' : 'Enviar enlace'}
-                </Button>
-
-                <button
-                  type="button"
-                  onClick={() => { setModo('login'); setRecuperarMensaje(null); setRecuperarError(null); setRecuperarIdentifier('') }}
-                  className="w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={form.formState.isSubmitting}
                 >
-                  ← Volver al inicio de sesión
-                </button>
+                  {form.formState.isSubmitting ? 'Accediendo...' : 'Acceder'}
+                </Button>
               </form>
-            )}
+            </Form>
           </CardContent>
         </Card>
 

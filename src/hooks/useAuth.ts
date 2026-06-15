@@ -1,11 +1,9 @@
 import { useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/store/authStore'
 
 export function useAuth() {
   const { setUser, setLoading } = useAuthStore()
-  const navigate = useNavigate()
 
   const initialize = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -21,11 +19,7 @@ export function useAuth() {
 
     setLoading(false)
 
-    supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        navigate('/reset-password')
-        return
-      }
+    supabase.auth.onAuthStateChange(async (_, session) => {
       if (session?.user) {
         const { data: profile } = await supabase
           .from('usuarios')

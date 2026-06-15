@@ -4,7 +4,6 @@ import { ToastProvider } from '@/context/ToastContext'
 import { useAuthStore } from '@/store/authStore'
 import { useAuth } from '@/hooks/useAuth'
 import Login from '@/pages/auth/Login'
-import ResetPasswordPage from '@/pages/auth/ResetPasswordPage'
 import RegisterPage from '@/pages/auth/RegisterPage'
 import AdminLayout from '@/pages/admin/AdminLayout'
 import BooksPage from '@/pages/admin/BooksPage'
@@ -49,7 +48,6 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<RegisterPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         <Route
           path="/admin"

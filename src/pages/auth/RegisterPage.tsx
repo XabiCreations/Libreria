@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -21,9 +21,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 
-type Step = 'form' | 'verify'
-
-interface PendingData {
+interface PerfilData {
   nombre: string
   apellido: string
   dni: string
@@ -88,21 +86,7 @@ export default function RegisterPage() {
   const { user, setUser } = useAuthStore()
   const navigate = useNavigate()
   const { showToast } = useToast()
-
-  const [step, setStep] = useState<Step>('form')
-  const [pending, setPending] = useState<PendingData | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
-
-  // Verify step
-  const [otp, setOtp] = useState('')
-  const [verifyLoading, setVerifyLoading] = useState(false)
-  const [resendCooldown, setResendCooldown] = useState(0)
-
-  useEffect(() => {
-    if (resendCooldown <= 0) return
-    const timer = setTimeout(() => setResendCooldown((c) => c - 1), 1000)
-    return () => clearTimeout(timer)
-  }, [resendCooldown])
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -125,165 +109,57 @@ export default function RegisterPage() {
     }
   }
 
-  const insertarPerfil = async (
-    userId: string,
-    data: PendingData
-  ): Promise<string | null> => {
+  const insertarPerfil = async (userId: string, datos: PerfilData): Promise<string | null> => {
     const { error } = await supabase.from('usuarios').insert({
       id: userId,
-      nombre: data.nombre,
-      apellido: data.apellido,
-      dni: data.dni,
-      telefono: data.telefono,
-      email: data.email,
+      nombre: datos.nombre,
+      apellido: datos.apellido,
+      dni: datos.dni,
+      telefono: datos.telefono,
+      email: datos.email,
       rol: 'cliente',
     })
     if (error) return 'No se pudo crear tu perfil. Contacta con soporte.'
-    const { data: profile } = await supabase
-      .from('usuarios')
-      .select('*')
-      .eq('id', userId)
-      .single()
+    const { data: profile } = await supabase.from('usuarios').select('*').eq('id', userId).single()
     if (profile) setUser(profile)
     return null
   }
 
   const onSubmit = async (values: FormValues) => {
     setSubmitError(null)
-    const pendingData: PendingData = {
-      nombre: values.nombre,
-      apellido: values.apellido,
-      dni: values.dni,
-      telefono: values.telefono,
-      email: values.email,
-    }
 
     const { data, error } = await supabase.auth.signUp({
       email: values.email,
       password: values.password,
     })
+
     if (error) {
-      console.error('[signUp error]', error.message, error)
       setSubmitError(traducirErrorAuth(error.message))
       return
     }
 
-    // Confirmación de email desactivada: sesión inmediata
-    if (data.session && data.user) {
-      const err = await insertarPerfil(data.user.id, pendingData)
-      if (err) { setSubmitError(err); return }
-      showToast({ variant: 'success', message: '¡Registro completado! Ya puedes empezar a reservar libros.' })
-      setTimeout(() => navigate('/dashboard'), 3000)
+    if (!data.user) {
+      setSubmitError('No se pudo crear la cuenta. Inténtalo de nuevo.')
       return
     }
 
-    // Confirmación de email activada: mostrar pantalla OTP
-    setPending(pendingData)
-    setResendCooldown(60)
-    setStep('verify')
-  }
-
-  const onVerify = async () => {
-    if (!pending) return
-    setVerifyLoading(true)
-
-    const { error: verifyErr } = await supabase.auth.verifyOtp({
-      email: pending.email,
-      token: otp,
-      type: 'signup',
+    const err = await insertarPerfil(data.user.id, {
+      nombre: values.nombre,
+      apellido: values.apellido,
+      dni: values.dni,
+      telefono: values.telefono,
+      email: values.email,
     })
 
-    if (verifyErr) {
-      showToast({ variant: 'error', message: 'Código incorrecto o expirado. Inténtalo de nuevo.' })
-      setVerifyLoading(false)
-      return
-    }
-
-    const { data: { user: authUser } } = await supabase.auth.getUser()
-    if (!authUser) {
-      showToast({ variant: 'error', message: 'No se pudo obtener el usuario. Inténtalo de nuevo.' })
-      setVerifyLoading(false)
-      return
-    }
-
-    const err = await insertarPerfil(authUser.id, pending)
     if (err) {
-      showToast({ variant: 'error', message: err })
-      setVerifyLoading(false)
+      setSubmitError(err)
       return
     }
 
-    setVerifyLoading(false)
     showToast({ variant: 'success', message: '¡Registro completado! Ya puedes empezar a reservar libros.' })
     setTimeout(() => navigate('/dashboard'), 3000)
   }
 
-  const onResend = async () => {
-    if (!pending || resendCooldown > 0) return
-    await supabase.auth.resend({ type: 'signup', email: pending.email })
-    setResendCooldown(60)
-  }
-
-  /* ── Pantalla de verificación OTP ─────────────────────── */
-  if (step === 'verify') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background px-4">
-        <div className="w-full max-w-sm space-y-6">
-          <div className="flex flex-col items-center gap-2 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary">
-              <Library className="h-6 w-6 text-primary-foreground" />
-            </div>
-            <h1 className="text-2xl font-semibold tracking-tight">Verifica tu email</h1>
-            <p className="text-sm text-muted-foreground">
-              Hemos enviado un código de 6 dígitos a{' '}
-              <span className="font-medium text-foreground">{pending?.email}</span>.
-              Introdúcelo a continuación.
-            </p>
-          </div>
-
-          <Card>
-            <CardContent className="pt-6 space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Código de verificación</label>
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={6}
-                  placeholder="000000"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                  className="text-center text-2xl tracking-[0.5em] font-mono"
-                />
-              </div>
-
-              <Button
-                className="w-full"
-                onClick={onVerify}
-                disabled={otp.length !== 6 || verifyLoading}
-              >
-                {verifyLoading ? 'Verificando...' : 'Verificar'}
-              </Button>
-
-              <div className="text-center">
-                <button
-                  type="button"
-                  onClick={onResend}
-                  disabled={resendCooldown > 0}
-                  className="text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {resendCooldown > 0
-                    ? `Reenviar código (${resendCooldown}s)`
-                    : 'Reenviar código'}
-                </button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    )
-  }
-
-  /* ── Formulario de registro ────────────────────────────── */
   const hasErrors = Object.keys(form.formState.errors).length > 0
 
   return (
