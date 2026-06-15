@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { Check, Library } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
+import { traducirErrorAuth } from '@/lib/authErrors'
 import { useAuthStore } from '@/store/authStore'
 import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/button'
@@ -162,7 +163,7 @@ export default function RegisterPage() {
       password: values.password,
     })
     if (error) {
-      setSubmitError(error.message)
+      setSubmitError(traducirErrorAuth(error.message))
       return
     }
 
