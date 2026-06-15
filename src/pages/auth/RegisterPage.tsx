@@ -3,10 +3,11 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Check, CheckCircle2, Library } from 'lucide-react'
+import { Check, Library } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/store/authStore'
+import { useToast } from '@/context/ToastContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -19,7 +20,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 
-type Step = 'form' | 'verify' | 'success'
+type Step = 'form' | 'verify'
 
 interface PendingData {
   nombre: string
@@ -85,6 +86,7 @@ const MENSAJES_UNICIDAD = {
 export default function RegisterPage() {
   const { user, setUser } = useAuthStore()
   const navigate = useNavigate()
+  const { showToast } = useToast()
 
   const [step, setStep] = useState<Step>('form')
   const [pending, setPending] = useState<PendingData | null>(null)
@@ -92,7 +94,6 @@ export default function RegisterPage() {
 
   // Verify step
   const [otp, setOtp] = useState('')
-  const [verifyError, setVerifyError] = useState<string | null>(null)
   const [verifyLoading, setVerifyLoading] = useState(false)
   const [resendCooldown, setResendCooldown] = useState(0)
 
@@ -169,7 +170,8 @@ export default function RegisterPage() {
     if (data.session && data.user) {
       const err = await insertarPerfil(data.user.id, pendingData)
       if (err) { setSubmitError(err); return }
-      setStep('success')
+      showToast({ variant: 'success', message: '¡Registro completado! Ya puedes empezar a reservar libros.' })
+      setTimeout(() => navigate('/dashboard'), 3000)
       return
     }
 
@@ -181,7 +183,6 @@ export default function RegisterPage() {
 
   const onVerify = async () => {
     if (!pending) return
-    setVerifyError(null)
     setVerifyLoading(true)
 
     const { error: verifyErr } = await supabase.auth.verifyOtp({
@@ -191,55 +192,34 @@ export default function RegisterPage() {
     })
 
     if (verifyErr) {
-      setVerifyError('Código incorrecto o expirado. Inténtalo de nuevo.')
+      showToast({ variant: 'error', message: 'Código incorrecto o expirado. Inténtalo de nuevo.' })
       setVerifyLoading(false)
       return
     }
 
     const { data: { user: authUser } } = await supabase.auth.getUser()
     if (!authUser) {
-      setVerifyError('No se pudo obtener el usuario. Inténtalo de nuevo.')
+      showToast({ variant: 'error', message: 'No se pudo obtener el usuario. Inténtalo de nuevo.' })
       setVerifyLoading(false)
       return
     }
 
     const err = await insertarPerfil(authUser.id, pending)
     if (err) {
-      setVerifyError(err)
+      showToast({ variant: 'error', message: err })
       setVerifyLoading(false)
       return
     }
 
     setVerifyLoading(false)
-    setStep('success')
+    showToast({ variant: 'success', message: '¡Registro completado! Ya puedes empezar a reservar libros.' })
+    setTimeout(() => navigate('/dashboard'), 3000)
   }
 
   const onResend = async () => {
     if (!pending || resendCooldown > 0) return
     await supabase.auth.resend({ type: 'signup', email: pending.email })
     setResendCooldown(60)
-  }
-
-  /* ── Pantalla de éxito ─────────────────────────────────── */
-  if (step === 'success') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background px-4">
-        <div className="w-full max-w-sm space-y-6 text-center">
-          <div className="flex flex-col items-center gap-3">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
-              <CheckCircle2 className="h-8 w-8 text-green-600" />
-            </div>
-            <h1 className="text-2xl font-semibold">¡Felicidades!</h1>
-            <p className="text-sm text-muted-foreground">
-              Te has registrado con éxito. Ya puedes empezar a reservar libros.
-            </p>
-          </div>
-          <Button className="w-full" onClick={() => navigate('/dashboard')}>
-            Empezar a reservar
-          </Button>
-        </div>
-      </div>
-    )
   }
 
   /* ── Pantalla de verificación OTP ─────────────────────── */
@@ -273,10 +253,6 @@ export default function RegisterPage() {
                   className="text-center text-2xl tracking-[0.5em] font-mono"
                 />
               </div>
-
-              {verifyError && (
-                <p className="text-sm font-medium text-destructive">{verifyError}</p>
-              )}
 
               <Button
                 className="w-full"
