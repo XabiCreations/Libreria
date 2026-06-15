@@ -163,6 +163,7 @@ export default function RegisterPage() {
       password: values.password,
     })
     if (error) {
+      console.error('[signUp error]', error.message, error)
       setSubmitError(traducirErrorAuth(error.message))
       return
     }
